@@ -12,7 +12,10 @@ import re
 program_environment = {}
 program_lines = {}
 
-tokenizer = re.compile(r"([a-z]\w*|\d+(?:\.\d+)?|>=|<=|!=|[()+\-*\/>=<]|[^\s\w]+)", flags=re.IGNORECASE)
+# think I've finally got it working
+# here's the breakdown:  |keywords|   numbers   |      strings      | relops |valid symbols| everything else
+tokenizer = re.compile(r"([a-z]\w*|\d+(?:\.\d+)?|(?:\"(?:\\.|.)*?\")|>=|<=|!=|[()+\-*\/>=<]|[^\s\w]+)", flags=re.IGNORECASE)
+
 
 def main():
     while True:
