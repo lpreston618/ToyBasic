@@ -8,21 +8,28 @@
 
 
 import re
+from toyBasicTypes import BasLangError
 
 program_environment = {}
 program_lines = {}
 
 # think I've finally got it working
-# here's the breakdown:  |keywords|   numbers   |      strings      | relops |valid symbols| everything else
-tokenizer = re.compile(r"([a-z]\w*|\d+(?:\.\d+)?|(?:\"(?:\\.|.)*?\")|>=|<=|!=|[()+\-*\/>=<]|[^\s\w]+)", flags=re.IGNORECASE)
-
+# here's the breakdown:  |keywords|   numbers   |      strings      | relops |valid symbols | everything else
+tokenizer = re.compile(r"([a-z]\w*|\d+(?:\.\d+)?|(?:\"(?:\\.|.)*?\")|>=|<=|!=|[()+\-*\/>=<,]|[^\s\w]+)", flags=re.IGNORECASE)
+# strings allow for escaped quotes. mismatched quotes result in a single " being captured,
+# so if a token is just a single quote I know I can report a mismatched quotes error.
+# keywords also includes valid variable names. numbers match both ints and floats.
+# yeesh, this was a pain to get working. regexes are hard.
 
 def main():
     while True:
         tokens = tokenizer.findall(input("> ").upper())
-        if tokens[0] == "QUIT":
+        if tokens[0] == "QUIT": #todo add run
             break
-        _line(tokens)
+        try:
+            _line(tokens)
+        except BasLangError as err:
+            print(err)
 
 
 def _line(tokens):
@@ -31,7 +38,7 @@ def _line(tokens):
         try:
             line_number = int(line_start)
         except ValueError:
-            raise Exception("Line numbers must be integers: " + line_start + "is invalid")
+            raise BasLangError("Line numbers must be integers: " + line_start + "is invalid")
         program_lines[line_number] = tokens[1:]
     else:
         _statement(tokens)
@@ -64,9 +71,8 @@ def _statement(tokens):
     elif word == "REM":
         _REM(tokens[1:])
     else:
-        raise Exception("Unknown symbol " + word)
+        raise BasLangError("Unknown symbol " + word)
 
-# this is twice as long as it would be if I didn't allow for commas in strings
 def _expr_list(tokens):
     
 
