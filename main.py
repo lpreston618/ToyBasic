@@ -8,7 +8,6 @@
 
 
 import re                       # for tokenizing input
-import itertools as it
 import more_itertools as m_it   # for peeking at the first item of the token iterator
 import readline                 # for my sanity
 
@@ -77,9 +76,16 @@ def _line(tokens):
     else:
         _statement(tokens)
 
-# todo account for empty statements
+# parse a statement in the BASIC language
 def _statement(tokens):
-    word = next(tokens)
+    ### if the statement is empty, just return. If not, consume a token and continue
+    word = tokens.peek(None)
+    if word == None:
+        return
+    else:
+        next(tokens)
+
+    ### statements must start with one of these commands
     if word == "PRINT":
         _PRINT(tokens)
     elif word == "IF":
@@ -205,16 +211,12 @@ def _factor(tokens) -> BasLangValue:
             raise BasLangError('expected ")", found ' + close_paren)
         return value
     elif is_number(next_token):
-        # NEEDS FIXING: Regex may parse "123abc" as ["123", "abc"] so this try probably never fails
-        try:
-            return BasLangValue(init_value=next_token)
-        except ValueError:
-            raise BasLangError(str(next_token) + ' is not a valid number')
+        return BasLangValue(init_value=next_token)
     elif not is_identifier(next_token):
         raise BasLangError(next_token + " is not a valid identifier")
     else:
         try:
-            value = program_environment[next_token]
+            return program_environment[next_token]
         except KeyError:
             raise BasLangError("unrecognized variable " + next_token)
 
@@ -281,10 +283,16 @@ def _IF(tokens):
         if then != "THEN":
             raise BasLangError("expected keyword THEN, found " + then)
         _statement(tokens)
+    # if the condition was not true, skip the rest of the line
+    else:
+        # constructing a list exhausts the iterator
+        list(tokens)
+
 
 # in a running program, jump to a specified line number
 # (might add computed GOTO later, which allows for whole expressions
 #    instead of just number literals)
+# currently expects "GOTO <line number>"
 def _GOTO(tokens):
     global line
 
@@ -305,6 +313,11 @@ def _LET(tokens):
     identifier = next(tokens)
     if not is_identifier(identifier):
         raise BasLangError(f"{identifier} is not a valid identifier")
+    equals_sign = next(tokens)
+    if equals_sign != "=":
+        raise BasLangError(f"expected =, found {equals_sign}")
+    value = _expr_or_string(tokens)
+    program_environment[identifier] = value
 
 def _GOSUB():
     pass
@@ -316,6 +329,7 @@ def _CLEAR():
     pass
 
 # print a listing of the current program in memory
+# expects either "LIST" or "LIST <line number>"
 def _LIST(tokens):
     # don't LIST if we're running a stored program
     if executing:
