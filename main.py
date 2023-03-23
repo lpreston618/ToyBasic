@@ -8,9 +8,11 @@
 
 
 import re                       # for tokenizing input
+import itertools as it
 import more_itertools as m_it   # for peeking at the first item of the token iterator
+import readline                 # for my sanity
 
-from toyBasicTypes import *
+from toyBasic import *
 
 program_environment = {}
 program_lines = {}
@@ -25,31 +27,42 @@ tokenizer = re.compile(r"([a-z]\w*|\d+(?:\.\d+)?|(?:\"(?:\\.|.)*?\")|>=|<=|!=|[(
 # keywords also includes valid variable names. numbers match both ints and floats.
 # yeesh, this was a pain to get working. regexes are hard.
 
+
 def main():
     global executing, line, program_environment, program_lines
     while True:
-        # an iterator over all tokens is the input, with the ability to peek at the first one
-        tokens = m_it.peekable(tokenizer.finditer(input("> ").upper()))
-        if tokens[0] == "QUIT": #todo add run
-            break
-        try:
-            _line(tokens)
-        except BasLangError as err:
-            print(err)
+        # an iterator over all tokens in the input, with the ability to peek at the first one
+        token_re_matches = tokenizer.finditer(input("> ").upper())
+        tokens = m_it.peekable(iter([i[0] for i in token_re_matches]))
+        if tokens.peek(False):
+            word = tokens.peek()
+            if word == "QUIT": #todo add run
+                break
+            elif word == "RUN":
+                pass
+            else:
+                try:
+                    toks = list(it.tee(tokens))
+                    for t in toks:
+                        print(t, end=" ")
+                    print()
+                    _line(tokens)
+                except BasLangError as err:
+                    print(err)
 
 
 def _line(tokens):
     line_start = tokens.peek()
     if line_start.isnumeric():
         line_number = int(line_start)
-        tokens.next()
+        next(tokens)
         program_lines[line_number] = tokens
     else:
         _statement(tokens)
 
 # todo account for empty statements
 def _statement(tokens):
-    word = tokens.next()
+    word = next(tokens)
     if word == "PRINT":
         _PRINT(tokens)
     elif word == "IF":
@@ -114,7 +127,9 @@ def _expression(tokens) -> BasLangValue:
     if sign == "-":
         value.value *= -1
 
-    while (next_token := tokens.peek('')) in "+-":
+    while next_token := tokens.peek(False):
+        if not next_token in "+-":
+            break
         sign = next_token
         next(tokens)
         if sign == "+":
@@ -130,7 +145,9 @@ def _string(tokens):
 
 def _term(tokens) -> BasLangValue:
     value = _factor(tokens)
-    while (next_token := tokens.peek('')) in "*/":
+    while next_token := tokens.peek(False):
+        if not next_token in "*/":
+            break
         op = next_token
         next(tokens)
         if op == "*":
@@ -233,5 +250,6 @@ def _REM():
     pass
 
 
-
+if __name__ == "__main__":
+    main()
 

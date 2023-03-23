@@ -13,6 +13,9 @@ class BasLangValue:
             self.value = float(init_value)
         else:
             self.value = init_value
+
+    def __str__(self) -> str:
+        return str(self.value)
     
     def add(self, other: 'BasLangValue') -> 'BasLangValue':
         if self.type == "number":
@@ -57,3 +60,4 @@ class BasLangValue:
             return "greater"
     
 
+    
