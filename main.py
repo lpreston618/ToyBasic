@@ -12,46 +12,61 @@ import itertools as it
 import more_itertools as m_it   # for peeking at the first item of the token iterator
 import readline                 # for my sanity
 
-from toyBasic import *
+from toyBasicTypes import *
 
-program_environment = {}
-program_lines = {}
-executing = False
-line = 0
+program_environment = {}    # stores BASIC program variables
+program_lines = {}          # stores lines of code to be executed when the RUN command is entered
+executing = False           # keeps track of if the program has been started with RUN
+line = 0                    # the current line of the program being executed
+call_stack = []             # keeps track of GOSUB calls
 
 # think I've finally got it working
-# here's the breakdown:  |keywords|   numbers   |      strings      | relops |valid symbols | everything else
-tokenizer = re.compile(r"([a-z]\w*|\d+(?:\.\d+)?|(?:\"(?:\\.|.)*?\")|>=|<=|!=|[()+\-*\/>=<,]|[^\s\w]+)", flags=re.IGNORECASE)
+# here's the breakdown:  |   comments   |keywords|   numbers   |      strings      | relops |valid symbols | everything else
+tokenizer = re.compile(r"((?:(?<=REM).*)|[a-z]\w*|\d+(?:\.\d+)?|(?:\"(?:\\.|.)*?\")|>=|<=|!=|[()+\-*\/>=<,]|[^\s\w]+)", flags=re.IGNORECASE)
 # strings allow for escaped quotes. mismatched quotes result in a single " being captured,
 # so if a token is just a single quote I know I can report a mismatched quotes error.
 # keywords also includes valid variable names. numbers match both ints and floats.
 # yeesh, this was a pain to get working. regexes are hard.
 
-
+# enter a read-eval-print loop where a user can run statements
+# directly or enter them into memory with line numbers
 def main():
     global executing, line, program_environment, program_lines
+
+    #loop until the user types "quit"
     while True:
-        # an iterator over all tokens in the input, with the ability to peek at the first one
+        ### lex input into token stream:
+
+        # an iterator over all re.match objects generated from the input
         token_re_matches = tokenizer.finditer(input("> ").upper())
-        tokens = m_it.peekable(iter([i[0] for i in token_re_matches]))
+        # an iterator over all tokens in the input, with the ability to peek at the first one
+        # and to seek back to the beginning
+        tokens = m_it.seekable(iter([i[0] for i in token_re_matches]))
+
+        ### execute direct commands (QUIT, RUN, LIST, adding lines to program, direct statements)
         if tokens.peek(False):
             word = tokens.peek()
-            if word == "QUIT": #todo add run
+            if word == "QUIT": 
                 break
             elif word == "RUN":
-                pass
+                pass #todo add run
             else:
-                try:
-                    toks = m_it.seekable(tokens)
-                    for t in toks:
-                        print(t, end=" ")
-                    print()
-                    toks.seek(0)
-                    _line(toks)
-                except BasLangError as err:
-                    print(err)
+                execute_line(tokens)
 
+# executes a single line of BASIC code and catches and prints any BASIC errors           
+def execute_line(tokens):
+    ### try to run the code
+    try:
+        # print(list(tokens)) # uncomment this to print tokenized input / test the lexer
+        # tokens.seek(0)
+        _line(tokens)
+    ### if anything goes wrong, print the error message and return to the '> ' prompt
+    except BasLangError as err:
+        print(f"Error: {err}")
+   
 
+# parses a single line. if the line starts with a number, stores the rest of the line
+# into program memory. if not, tries to parse and execute it directly
 def _line(tokens):
     line_start = tokens.peek()
     if line_start.isnumeric():
@@ -90,6 +105,11 @@ def _statement(tokens):
         _REM(tokens)
     else:
         raise BasLangError("Unknown symbol " + word)
+    
+    # if there are any tokens left at the end of parsing / executing,
+    # it's a syntax error
+    if next_token := tokens.peek(False):
+        raise BasLangError(f"unexpected token {next_token} at end of statement")
 
 #####
 # The parser, more or less
@@ -183,7 +203,7 @@ def _factor(tokens) -> BasLangValue:
         if close_paren != ")":
             raise BasLangError('expected ")", found ' + close_paren)
         return value
-    elif next_token[0].isnumeric:
+    elif is_number(next_token):
         # NEEDS FIXING: Regex may parse "123abc" as ["123", "abc"] so this try probably never fails
         try:
             return BasLangValue(init_value=next_token)
@@ -217,19 +237,32 @@ def _relop(tokens):
 
 # Check if a string is a valid variable name
 def is_identifier(string: str) -> bool:
-    return string == re.match("[A-Z]\w*", string, flags=re.IGNORECASE)[0]
+    match = re.match("[A-Z]\w*", string, flags=re.IGNORECASE)
+    if match:
+        return match[0] == string
+    return False
+
+# Check if a string is a valid number
+def is_number(string: str) -> bool:
+    match = re.match(r"\d+(?:\.\d+)?", string)
+    if match:
+        return match[0] == string
+    return False
 
 
 #####
 # Language constructs
 #####
 
+# execute a PRINT statement
+# Print takes a comma-separated list of strings and expressions to print
 def _PRINT(tokens):
     args = _expr_list(tokens)
     for arg in args:
         print(arg, end='\t')
     print()
 
+# execute an IF ... THEN statement
 def _IF(tokens):
     # op = next(tokens)
     # result = value1.compare(value2, op)
@@ -262,17 +295,65 @@ def _RETURN():
 def _CLEAR():
     pass
 
-def _LIST():
-    pass
+# print a listing of the current program in memory
+def _LIST(tokens):
+    # don't LIST if we're running a stored program
+    if executing:
+        raise BasLangError("cannot LIST while the program is running")
+    
+    # if the user supplies a line number, try to print just that line
+    elif line_number := tokens.peek(False):
+        next(tokens) # consume the next (presumably line number) token
+        if not line_number.isnumeric():
+            raise BasLangError(f"LIST expects an integer, found {line_number}") 
+        # if the user types a line number that doesn't exist, raise an error
+        try:
+            tokens = program_lines[int(line_number)]
+            print(f"{line_number}", end=' ')
+            tokens.seek(1) # go to second item of token stream, SKIPPING the line number
+            for token in tokens:
+                print(token, end=' ')
+            print()
+        except KeyError:
+            raise BasLangError(f"line {line_number} not found")
+    
+    # otherwise, print all the lines in order
+    else:
+        for (line, tokens) in sorted(program_lines.items()):
+            tokens.seek(1) # rewind to beginning of token stream, then skip the line number
 
+            print(str(line), end=' ')
+            for token in tokens:
+                print(token, end=' ')
+            print()
+
+
+# begin execution of the stored program. can only be called from command-line
+# mode, not from the stored program itself
 def _RUN():
-    pass
+    global line, executing
+    # if the program is already running when we call RUN, raise an error
+    if executing:
+        raise BasLangError("cannot call RUN from an already running program")
+    
+    # otherwise, begin running
+    executing = True
+    lines = sorted(list(program_lines.keys())) # an ordered list of all program line numbers
+    if len(lines) == 0:
+        raise BasLangError("cannot RUN an empty program")
+    
+    line = lines[0]
+    while executing:
+        tokens = program_lines[line]
+        tokens.seek(1) # rewind token strem, skipping the line number token
+
 
 def _END():
     pass
 
-def _REM():
-    pass
+# if we encounter a comment, skip the "comment" token and continue
+def _REM(tokens):
+    next(tokens)
 
 
 if __name__ == "__main__":

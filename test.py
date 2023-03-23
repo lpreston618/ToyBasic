@@ -1,4 +1,4 @@
-from toyBasic import *
+from toyBasicTypes import *
 
 a = BasLangValue(init_value=2)
 b = BasLangValue(init_value=3)
