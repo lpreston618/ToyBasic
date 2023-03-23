@@ -48,13 +48,12 @@ def main():
             word = tokens.peek()
             if word == "QUIT": 
                 break
-            elif word == "RUN":
-                pass #todo add run
             else:
                 execute_line(tokens)
 
 # executes a single line of BASIC code and catches and prints any BASIC errors           
 def execute_line(tokens):
+    global executing
     ### try to run the code
     try:
         # print(list(tokens)) # uncomment this to print tokenized input / test the lexer
@@ -63,6 +62,8 @@ def execute_line(tokens):
     ### if anything goes wrong, print the error message and return to the '> ' prompt
     except BasLangError as err:
         print(f"Error: {err}")
+        executing = False
+
    
 
 # parses a single line. if the line starts with a number, stores the rest of the line
@@ -97,14 +98,14 @@ def _statement(tokens):
         _CLEAR(tokens)
     elif word == "LIST":
         _LIST(tokens)
-    elif word == "RUN":
-        _RUN(tokens)
+    elif word == "RUN": # _RUN() doesn't need the token input stream, so we don't pass it
+        _RUN()
     elif word == "END":
         _END(tokens)
     elif word == "REM":
         _REM(tokens)
     else:
-        raise BasLangError("Unknown symbol " + word)
+        raise BasLangError(f"unknown symbol {word}")
     
     # if there are any tokens left at the end of parsing / executing,
     # it's a syntax error
@@ -252,6 +253,10 @@ def is_number(string: str) -> bool:
 
 #####
 # Language constructs
+#
+#
+#
+#
 #####
 
 # execute a PRINT statement
@@ -277,14 +282,29 @@ def _IF(tokens):
             raise BasLangError("expected keyword THEN, found " + then)
         _statement(tokens)
 
-def _GOTO():
-    pass
+# in a running program, jump to a specified line number
+# (might add computed GOTO later, which allows for whole expressions
+#    instead of just number literals)
+def _GOTO(tokens):
+    global line
+
+    if not executing:
+        raise BasLangError("GOTO can only be called in a running program")
+    new_line_number = next(tokens)
+    if not new_line_number.isnumeric():
+        raise BasLangError(f"GOTO expects integer, found {new_line_number}")
+    line = int(new_line_number)
+    
 
 def _INPUT():
     pass
 
-def _LET():
-    pass
+# defines or redefines a variable in the program environment
+# expects the form "LET <identifier> = <expression or string>"
+def _LET(tokens):
+    identifier = next(tokens)
+    if not is_identifier(identifier):
+        raise BasLangError(f"{identifier} is not a valid identifier")
 
 def _GOSUB():
     pass
@@ -344,8 +364,38 @@ def _RUN():
     
     line = lines[0]
     while executing:
+        ### retireve the current line and prepare to move to the next line, if any
+        line_index = lines.index(line) + 1
         tokens = program_lines[line]
-        tokens.seek(1) # rewind token strem, skipping the line number token
+        ### try to run the program
+        try:
+            old_line_number = line
+            tokens.seek(1) # rewind token stream, skipping the line number token
+
+            _statement(tokens) # execute the statement
+
+            # if the executed statement hasn't modified the line number
+            # (basically if no GOTO or GOSUB happened)
+            if old_line_number == line:
+                # if we just executed the last line, stop execution
+                if line == lines[-1]:
+                    executing = False
+                # otherwise, advance to the next line
+                else:
+                    line = lines[line_index]
+            
+        
+        ### if there's a problem, raise an error that includes the line number
+        except BasLangError as err:
+            raise BasLangError(f"(line {line}) {err}")
+        ### if the user hits CTRL-c to keyboard interrupt, we stop
+        except KeyboardInterrupt:
+            print(f"User break on {line}")
+            executing = False
+        ### if we run out of lines, the program simply ends
+        except IndexError: # we've reached the end of the program
+            executing = False
+            return
 
 
 def _END():
