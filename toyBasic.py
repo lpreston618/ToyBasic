@@ -18,37 +18,31 @@ class BasLangValue:
         return str(self.value)
     
     def add(self, other: 'BasLangValue') -> 'BasLangValue':
-        if self.type == "number":
-            if other.type != "number":
-                raise BasTypeError("cannot add " + str(other.value) + " to a number")
-            return BasLangValue(init_value=self.value+other.value)
-        elif self.type == "string":
-            return BasLangValue(init_type="string", init_value=self.value+str(other.value))
-    
+        if self.type == other.type:
+            self.value += other.value
+        else:
+            raise BasTypeError(f"cannot add {other.type} to {self.type}")
+
     def sub(self, other: 'BasLangValue') -> 'BasLangValue':
-        if self.type != "number":
-            raise BasTypeError("cannot subtract from type " + self.type)
-        elif other.type != "number":
-            raise BasTypeError("cannot subtract " + other.type + " from a number")
-        return BasLangValue(init_value=self.value-other.value)
+        if self.type == other.type == "number":
+            self.value -= other.value
+        else:
+            raise BasTypeError(f"cannot subtract {other.type} from {self.type}")
+        
     
     def mul(self, other: 'BasLangValue') -> 'BasLangValue':
-        if self.type == "number":
-            if other.type != "number":
-                raise BasTypeError("cannot multiply " + str(other.value) + " by a number")
-            return BasLangValue(init_value=self.value*other.value)
-        elif self.type == "string":
-            raise BasTypeError("cannot multiply a string")
+        if self.type == other.type == "number":
+            self.value *= other.value
+        else:
+            raise BasTypeError(f"cannot multiply {self.type} by {other.type}")
     
     def div(self, other: 'BasLangValue') -> 'BasLangValue':
-        if self.type == "number":
-            if other.type != "number":
-                raise BasTypeError("cannot divide " + str(other.value) + " by a number")
-            return BasLangValue(init_value=self.value/other.value)
-        elif self.type == "string":
-            raise BasTypeError("cannot divide a string")
+        if self.type == other.type == "number":
+            self.value /= other.value
+        else:
+            raise BasTypeError(f"cannot divide {self.type} by {other.type}")
     
-    
+    # def compare(self, other: 'BasLangValue', op: str) -> bool:
     def compare(self, other: 'BasLangValue') -> str:
         if self.type != other.type:
             raise BasTypeError("cannot compare " + self.type + " to " + other.type)
@@ -58,6 +52,19 @@ class BasLangValue:
             return "equal"
         else:
             return "greater"
+
+        # if op == "=":
+        #     return self.value == other.value
+        # elif op == "<=":
+        #     return self.value <= other.value
+        # elif op == ">=":
+        #     return self.value >= other.value
+        # elif op == "<":
+        #     return self.value < other.value
+        # elif op == ">":
+        #     return self.value > other.value
+        # elif op == "!=":
+        #     return self.value != other.value
     
 
     

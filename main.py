@@ -42,11 +42,12 @@ def main():
                 pass
             else:
                 try:
-                    toks = list(it.tee(tokens))
+                    toks = m_it.seekable(tokens)
                     for t in toks:
                         print(t, end=" ")
                     print()
-                    _line(tokens)
+                    toks.seek(0)
+                    _line(toks)
                 except BasLangError as err:
                     print(err)
 
@@ -95,10 +96,22 @@ def _statement(tokens):
 #####
 
 def _expr_list(tokens):
+    # values_list = []
+
+    # while next_token := tokens.peek(False):
+    #     if next_token != ',':
+    #         raise BasLangError('expressions must be separated by a ","')
+        
+    #     else:
+    #         values_list.append(_expr_or_string(tokens))
+    
+    # return values_list
+
     values_list = [_expr_or_string(tokens)]
     while next_token := tokens.peek(False):
         if next_token != ',':
             raise BasLangError('expressions must be separated by a ","')
+        next(tokens)
         values_list.append(_expr_or_string(tokens))
     return values_list
 
@@ -118,14 +131,18 @@ def _expr_or_string(tokens) -> BasLangValue:
         return _expression(tokens)
 
 def _expression(tokens) -> BasLangValue:
+    # Create an initial value of 0
+    value = BasLangValue()
     first_token = tokens.peek()
-    sign = "+"
-    if first_token in "+-":
-        sign = first_token
+
+    if first_token == "+":
         next(tokens)
-    value = _term(tokens)
-    if sign == "-":
-        value.value *= -1
+        value.add(_term(tokens))
+    elif first_token == "-":
+        next(tokens)
+        value.sub(_term(tokens))
+    else:
+        value.add(_term(tokens))
 
     while next_token := tokens.peek(False):
         if not next_token in "+-":
@@ -133,15 +150,17 @@ def _expression(tokens) -> BasLangValue:
         sign = next_token
         next(tokens)
         if sign == "+":
-            value = value.add(_term(tokens))
+            value.add(_term(tokens))
         elif sign == "-":
-            value = value.sub(_term(tokens))
+            value.sub(_term(tokens))
     return value
 
 def _string(tokens):
     next_token = next(tokens)
-    if len(next_token) == 1:
+    if next_token == '"':
         raise BasLangError('unmatched "')
+    else:
+        return BasLangValue(init_type="string", init_value=next_token[1:-1])
 
 def _term(tokens) -> BasLangValue:
     value = _factor(tokens)
@@ -151,9 +170,9 @@ def _term(tokens) -> BasLangValue:
         op = next_token
         next(tokens)
         if op == "*":
-            value = value.mul(_factor(tokens))
+            value.mul(_factor(tokens))
         elif op == "/":
-            value = value.div(_factor(tokens))
+            value.div(_factor(tokens))
     return value
 
 def _factor(tokens) -> BasLangValue:
@@ -162,9 +181,10 @@ def _factor(tokens) -> BasLangValue:
         value = _expression(tokens)
         close_paren = next(tokens)
         if close_paren != ")":
-            raise BasLangError('expected "(", found ' + close_paren)
+            raise BasLangError('expected ")", found ' + close_paren)
         return value
     elif next_token[0].isnumeric:
+        # NEEDS FIXING: Regex may parse "123abc" as ["123", "abc"] so this try probably never fails
         try:
             return BasLangValue(init_value=next_token)
         except ValueError:
@@ -195,6 +215,7 @@ def _relop(tokens):
     else:
         raise BasLangError("expected relational operator, found ", + op)
 
+# Check if a string is a valid variable name
 def is_identifier(string: str) -> bool:
     return string == re.match("[A-Z]\w*", string, flags=re.IGNORECASE)[0]
 
@@ -207,8 +228,12 @@ def _PRINT(tokens):
     args = _expr_list(tokens)
     for arg in args:
         print(arg, end='\t')
+    print()
 
 def _IF(tokens):
+    # op = next(tokens)
+    # result = value1.compare(value2, op)
+
     value1 = _expr_or_string(tokens)
     valid_states = _relop(tokens)
     value2 = _expr_or_string(tokens)
