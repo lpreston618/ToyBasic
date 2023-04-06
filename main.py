@@ -17,6 +17,7 @@ program_environment = {}    # stores BASIC program variables
 program_lines = {}          # stores lines of code to be executed when the RUN command is entered
 executing = False           # keeps track of if the program has been started with RUN
 line = 0                    # the current line of the program being executed
+line_changed = False        # set if line was changed during execution, e.g. by GOTO or RETURN
 call_stack = []             # keeps track of GOSUB calls
 
 # think I've finally got it working
@@ -38,13 +39,15 @@ def main():
 
         # an iterator over all re.match objects generated from the input
         token_re_matches = tokenizer.finditer(input("> ").upper())
-        # an iterator over all tokens in the input, with the ability to peek at the first one
-        # and to seek back to the beginning
+
+        # an iterator over all tokens (strings) in the input, with the ability to peek 
+        # at the first one and to seek back to the beginning
         tokens = m_it.seekable(iter([i[0] for i in token_re_matches]))
 
-        ### execute direct commands (QUIT, RUN, LIST, adding lines to program, direct statements)
-        if tokens.peek(False):
-            word = tokens.peek()
+        ### Allow user to quit, otherwise parse & execute their input
+        # .peek() takes a default value to return if the iterator is empty,
+        # so this if statement is only true when the input _isn't_ empty.
+        if word := tokens.peek(False):
             if word == "QUIT": 
                 break
             else:
@@ -98,16 +101,16 @@ def _statement(tokens):
         _LET(tokens)
     elif word == "GOSUB":
         _GOSUB(tokens)
-    elif word == "RETURN":
-        _RETURN(tokens)
+    elif word == "RETURN": # _RETURN() doesn't need the token stream, so we don't pass it
+        _RETURN()
     elif word == "CLEAR":
         _CLEAR(tokens)
     elif word == "LIST":
         _LIST(tokens)
-    elif word == "RUN": # _RUN() doesn't need the token input stream, so we don't pass it
+    elif word == "RUN": # _RUN() doesn't need the token stream, either
         _RUN()
-    elif word == "END":
-        _END(tokens)
+    elif word == "END": # _END() doesn't need the token stream, either
+        _END()
     elif word == "REM":
         _REM(tokens)
     else:
@@ -294,14 +297,19 @@ def _IF(tokens):
 #    instead of just number literals)
 # currently expects "GOTO <line number>"
 def _GOTO(tokens):
-    global line
+    global line, line_changed
 
     if not executing:
         raise BasLangError("GOTO can only be called in a running program")
-    new_line_number = next(tokens)
-    if not new_line_number.isnumeric():
-        raise BasLangError(f"GOTO expects integer, found {new_line_number}")
-    line = int(new_line_number)
+    line_number = next(tokens)
+    if not line_number.isnumeric():
+        raise BasLangError(f"GOTO expects integer, found {line_number}")
+    
+    if not int(line_number) in program_lines:
+        raise BasLangError(f"GOSUB line {line_number} not found")
+    
+    line = int(line_number)
+    line_changed = True
     
 
 def _INPUT():
@@ -319,11 +327,51 @@ def _LET(tokens):
     value = _expr_or_string(tokens)
     program_environment[identifier] = value
 
-def _GOSUB():
-    pass
+# call a BASIC subroutine that starts on the specified line number
+# syntax is "GOSUB <line number>"
+def _GOSUB(tokens):
+    global line, line_changed, call_stack
 
+    if not executing:
+        raise BasLangError("GOSUB can only be called in a running program")
+    line_number = next(tokens)
+
+    if not line_number.isnumeric():
+        raise BasLangError(f"GOSUB expects an integer, found {line_number}")
+
+    if not int(line_number) in program_lines:
+        raise BasLangError(f"GOSUB line {line_number} not found")
+    
+    # we have a valid line number, so we push the return location
+    # and set the new line number
+    call_stack.append(line)
+    line = int(line_number)
+    line_changed = True
+
+
+# returns from a BASIC subroutine by popping the return location
+# off the call stack. errors if the stack is empty
+# syntax is just "RETURN"
 def _RETURN():
-    pass
+    global line, line_changed, call_stack, executing
+    if not executing:
+        raise BasLangError("RETURN can only be called in a running program")
+    
+    if len(call_stack) == 0:
+        raise BasLangError("RETURN caused a stack underflow")
+    
+    # find the next line after the return location.
+    current_line = call_stack.pop()
+    sorted_line_numbers = sorted(program_lines.keys())
+    next_line_index = sorted_line_numbers.index(current_line) + 1
+    try:
+        line = sorted_line_numbers[next_line_index]
+    except ValueError:
+        # we hit the end of the program after returning
+        executing = False
+    line_changed = True
+
+
 
 def _CLEAR():
     pass
@@ -362,10 +410,10 @@ def _LIST(tokens):
             print()
 
 
-# begin execution of the stored program. can only be called from command-line
+# begin execution of the stored BASIC program. can only be called from command-line
 # mode, not from the stored program itself
 def _RUN():
-    global line, executing
+    global line, executing, line_changed
     # if the program is already running when we call RUN, raise an error
     if executing:
         raise BasLangError("cannot call RUN from an already running program")
@@ -376,33 +424,35 @@ def _RUN():
     if len(lines) == 0:
         raise BasLangError("cannot RUN an empty program")
     
+    # start at the first line of the program
     line = lines[0]
+    line_changed = True
     while executing:
-        ### retireve the current line and prepare to move to the next line, if any
-        line_index = lines.index(line) + 1
+        if not line_changed:
+            # advance the line manually
+            line_index = lines.index(line) + 1
+            line = lines[line_index]
+        
         tokens = program_lines[line]
         ### try to run the program
         try:
-            old_line_number = line
+            line_changed = False
             tokens.seek(1) # rewind token stream, skipping the line number token
 
             _statement(tokens) # execute the statement
 
             # if the executed statement hasn't modified the line number
-            # (basically if no GOTO or GOSUB happened)
-            if old_line_number == line:
-                # if we just executed the last line, stop execution
+            # (basically if no GOTO, GOSUB, or RETURN happened)
+            if not line_changed:
+                # if we just executed the final line, stop execution
                 if line == lines[-1]:
                     executing = False
-                # otherwise, advance to the next line
-                else:
-                    line = lines[line_index]
             
         
         ### if there's a problem, raise an error that includes the line number
         except BasLangError as err:
             raise BasLangError(f"(line {line}) {err}")
-        ### if the user hits CTRL-c to keyboard interrupt, we stop
+        ### if the user hits CTRL-C to keyboard interrupt, we stop
         except KeyboardInterrupt:
             print(f"User break on {line}")
             executing = False
@@ -411,11 +461,17 @@ def _RUN():
             executing = False
             return
 
-
+# ends stored program execution
+# syntax is just "END"
 def _END():
-    pass
+    global executing
+    if executing:
+        executing = False
+    else:
+        raise BasLangError("END can only be called in a running program")
 
 # if we encounter a comment, skip the "comment" token and continue
+# syntax is "REM <the rest of the line as a single comment token>"
 def _REM(tokens):
     next(tokens)
 
